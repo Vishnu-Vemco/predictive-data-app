@@ -47,15 +47,19 @@
           <div class="panel-block">
             <h2>Prediction Logic</h2>
             <div class="segmented" role="radiogroup" aria-label="Prediction method">
-              <label>
-                <input type="radio" name="method" value="weighted" checked>
+              <label title="Automatically chooses the best method based on missing data pattern, available history, and outliers.">
+                <input type="radio" name="method" value="auto" checked>
+                <span>Auto</span>
+              </label>
+              <label title="Uses weighted values from previous week, month, and year. Best for stable people-count patterns and short gaps.">
+                <input type="radio" name="method" value="weighted">
                 <span>Weighted</span>
               </label>
-              <label>
+              <label title="Uses the simple average of available historical values. Good when many records are missing or no strong pattern exists.">
                 <input type="radio" name="method" value="average">
                 <span>Average</span>
               </label>
-              <label>
+              <label title="Uses the middle value to reduce the impact of spikes and outliers. Best when the data has unusual peaks.">
                 <input type="radio" name="method" value="median">
                 <span>Median</span>
               </label>
@@ -76,7 +80,7 @@
 
           <div class="actions">
             <button id="runButton" class="primary" type="button" disabled>Run Prediction</button>
-            <button id="downloadCsvButton" type="button" disabled>Download CSV</button>
+            <button id="downloadCsvButton" type="button" disabled>Download Excel</button>
             <button id="downloadReportButton" type="button" disabled>Download Report</button>
           </div>
         </aside>
@@ -127,8 +131,6 @@
           </div>
         </section>
       </section>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
-    <script src="app.js"></script>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
     <script src="app.js"></script>
