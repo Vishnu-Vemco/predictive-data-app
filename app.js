@@ -461,152 +461,21 @@ function makeUniqueHeaders(rawHeaders) {
   });
 }
 
-
-function isIndexHeader(header) {
-  const lower = String(header || '').trim().toLowerCase();
-  return lower === '' || lower === 'index' || lower === 'idx' || lower === '#' || lower.startsWith('unnamed');
-}
-
-function isSequentialIndexColumn(parsedRows, columnIndex) {
-  const values = parsedRows.slice(1, 30).map((row) => String(row[columnIndex] ?? '').trim()).filter(Boolean);
-  if (values.length === 0) {
-    return false;
-  }
-
-  return values.every((value, index) => {
-    const number = Number(value);
-    return Number.isInteger(number) && (number === index || number === index + 1);
-  });
-}
-
-function looksLikeDateTimeValue(value) {
-  const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}[ T]\d{1,2}:\d{2}/.test(text);
-}
-
-function looksLikeDateOnlyValue(value) {
-  const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(text);
-}
-function formatDate(day, month, year) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-
-  return `${day} ${months[Number(month) - 1]} ${year}`;
-}
-
-function splitDateTime(value) {
-  const text = String(value || '').trim();
-
-  // Match: YYYY-MM-DD HH:mm:ss OR YYYY-MM-DDTHH:mm:ss
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T]?(\d{2}:\d{2})(?::\d{2})?/);
-
-  if (match) {
-    const year = match[1];
-    const month = match[2];
-    const day = match[3];
-    const time = match[4] || '00:00';
-
-    const formattedDate = formatDate(day, month, year);
-
-    return {
-      date: formattedDate,
-      time: time
-    };
-  }
-
-  return {
-    date: text,
-    time: '00:00'
-  };
-}
-
 function rowsToObjects(parsedRows) {
   if (parsedRows.length === 0) {
     return { headers: [], rows: [] };
   }
 
-  const rawHeaders = makeUniqueHeaders(parsedRows[0]);
-
-  const shouldRemoveFirstColumn = (() => {
-    const firstHeader = rawHeaders[0];
-    const headerLooksIndex = isIndexHeader(firstHeader);
-    const valuesLookSequential = isSequentialIndexColumn(parsedRows, 0);
-
-    const sample = parsedRows
-      .slice(1, 30)
-      .map((row) => String(row[0] ?? '').trim())
-      .filter(Boolean);
-
-    const numericRatio = sample.length
-      ? sample.filter((value) => Number.isInteger(Number(value))).length / sample.length
-      : 0;
-
-    const firstDataValue = sample[0] || '';
-    const firstColumnLooksLikeDateTime = looksLikeDateTimeValue(firstDataValue);
-    const firstColumnLooksLikeDate = looksLikeDateOnlyValue(firstDataValue);
-
-    return (
-      !firstColumnLooksLikeDateTime &&
-      !firstColumnLooksLikeDate &&
-      (headerLooksIndex || valuesLookSequential || numericRatio >= 0.9)
-    );
-  })();
-
-  const keptColumns = rawHeaders
-    .map((header, index) => ({ header, index }))
-    .filter((column) => !(shouldRemoveFirstColumn && column.index === 0));
-
-  let headers = keptColumns.map((column) => column.header);
-  const firstKeptColumnIndex = keptColumns[0]?.index ?? 0;
-
-  const hasDateTime = parsedRows.slice(1, 30).some((row) => {
-    const value = String(row[firstKeptColumnIndex] ?? '').trim();
-    return looksLikeDateTimeValue(value);
-  });
-
-  if (hasDateTime) {
-    headers[0] = 'Date';
-    if (!headers.includes('Time')) {
-      headers.splice(1, 0, 'Time');
-    }
-  }
-
+  const headers = makeUniqueHeaders(parsedRows[0]);
   const rows = parsedRows.slice(1).map((cells, rowIndex) => {
     const row = { __rowNumber: rowIndex + 2 };
-
-    headers.forEach((header, outputIndex) => {
-      if (hasDateTime && outputIndex === 0) {
-        const { date, time } = splitDateTime(cells[firstKeptColumnIndex]);
-        row.Date = date;
-        row.Time = time;
-        return;
-      }
-
-      if (hasDateTime && outputIndex === 1 && header === 'Time') {
-        return;
-      }
-
-      const keptIndex = hasDateTime && outputIndex > 1
-        ? outputIndex - 1
-        : outputIndex;
-
-      const sourceColumnIndex = keptColumns[keptIndex]?.index;
-      row[header] = sourceColumnIndex !== undefined ? cells[sourceColumnIndex] ?? '' : '';
+    headers.forEach((header, columnIndex) => {
+      row[header] = cells[columnIndex] ?? '';
     });
-
     return row;
   });
 
-  const cleanedRows = rows.filter((row) => {
-    return !Object.values(row).some((val) =>
-      SUMMARY_ROW_LABELS.has(String(val).trim().toLowerCase())
-    );
-  });
-
-  return { headers, rows: cleanedRows };
+  return { headers, rows };
 }
 
 function parseNumber(value) {
@@ -748,8 +617,56 @@ function getSelectedHistoryColumns() {
   return Array.from(elements.historyColumns.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
 }
 
+function chooseAutoMethod() {
+  const targetColumn = elements.targetColumn.value;
+  const historyColumns = getSelectedHistoryColumns();
+
+  if (!targetColumn || historyColumns.length === 0 || state.rows.length === 0) {
+    return 'weighted';
+  }
+
+  const missingRows = state.rows.filter((row) => shouldPredict(row, targetColumn));
+  if (missingRows.length === 0) {
+    return 'weighted';
+  }
+
+  const missingRatio = missingRows.length / state.rows.length;
+  const historyValues = missingRows.flatMap((row) =>
+    historyColumns
+      .map((column) => parseNumber(row[column]))
+      .filter((value) => value !== null && value > 0)
+  );
+
+  if (historyValues.length === 0) {
+    return 'median';
+  }
+
+  const avg = average(historyValues);
+  const max = Math.max(...historyValues);
+  const hasOutlier = avg > 0 && max / avg > 2;
+
+  if (hasOutlier) {
+    return 'median';
+  }
+
+  if (missingRatio > 0.2) {
+    return 'average';
+  }
+
+  if (historyColumns.length >= 3) {
+    return 'weighted';
+  }
+
+  return 'average';
+}
+
+function selectedPredictionMethod() {
+  const selected = methodName();
+  return selected === 'auto' ? chooseAutoMethod() : selected;
+}
+
 function methodName() {
-  return document.querySelector('input[name="method"]:checked')?.value || 'weighted';
+  return document.querySelector('input[name="method"]:checked')?.value || 'auto';
 }
 
 function roundPrediction(value) {
@@ -880,7 +797,7 @@ function runPrediction() {
   const dateColumn = elements.dateColumn.value;
   const targetColumn = elements.targetColumn.value;
   const historyColumns = getSelectedHistoryColumns();
-  const method = methodName();
+  const method = selectedPredictionMethod();
 
   if (!targetColumn) {
     addLog('Select the count column before running prediction.', 'error');
@@ -1112,6 +1029,9 @@ async function handleFile(file) {
     populateSelect(elements.targetColumn, headers, guesses.targetColumn, false);
     populateHistoryColumns(guesses.numericHeaders.filter((header) => header !== guesses.targetColumn), guesses.historyColumns);
 
+    const recommendedMethod = chooseAutoMethod();
+    addLog(`Recommended prediction method: ${recommendedMethod}. Auto mode will use this unless you manually choose another method.`);
+
     elements.fileName.textContent = file.name;
     elements.runButton.disabled = false;
     elements.downloadCsvButton.disabled = true;
@@ -1138,97 +1058,6 @@ async function handleFile(file) {
     elements.downloadCsvButton.disabled = true;
     elements.downloadReportButton.disabled = true;
   }
-}
-
-async function downloadTrueXlsx(filename, rows) {
-  if (typeof ExcelJS === 'undefined') {
-    throw new Error('ExcelJS is not loaded. Confirm the ExcelJS script tag appears before app.js in the HTML file.');
-  }
-
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Predictive Data Recovery';
-  workbook.created = new Date();
-
-  const worksheet = workbook.addWorksheet('Predicted Data', {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
-
-  worksheet.addRow(state.headers);
-  worksheet.autoFilter = {
-    from: { row: 1, column: 1 },
-    to: { row: 1, column: state.headers.length },
-  };
-
-  worksheet.getRow(1).eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: 'FF000000' } };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFEAEAEA' },
-    };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' },
-    };
-  });
-
-  const targetColumn = elements.targetColumn.value;
-
-  rows.forEach((row) => {
-    const excelRow = worksheet.addRow(
-      state.headers.map((header) => row[header] ?? '')
-    );
-
-    state.headers.forEach((header, index) => {
-      const cell = excelRow.getCell(index + 1);
-
-      cell.border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' },
-      };
-      cell.alignment = { vertical: 'middle' };
-
-      if (row.__predictionStatus === 'predicted' && header === targetColumn) {
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FFFFC000' },
-        };
-        cell.font = {
-          bold: true,
-          color: { argb: 'FF000000' },
-        };
-      }
-    });
-  });
-
-  worksheet.columns.forEach((column) => {
-    let maxLength = 12;
-    column.eachCell({ includeEmpty: true }, (cell) => {
-      const value = cell.value ? String(cell.value) : '';
-      maxLength = Math.max(maxLength, value.length + 2);
-    });
-    column.width = Math.min(maxLength, 35);
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  });
-
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
 }
 
 function syncHistoryAfterTargetChange() {
@@ -1273,13 +1102,25 @@ elements.zeroMissing.addEventListener('change', updateMetrics);
 elements.runButton.addEventListener('click', runPrediction);
 elements.clearLogButton.addEventListener('click', () => resetLog('Log cleared.'));
 
+elements.downloadCsvButton.addEventListener('click', () => {
+  downloadText(`${baseFileName()}-predicted.csv`, buildCSV(state.resultRows));
+});
+
+elements.downloadReportButton.addEventListener('click', () => {
+  downloadText(`${baseFileName()}-prediction-report.csv`, buildReportCSV());
+});
+
+
 elements.downloadCsvButton.addEventListener('click', async () => {
   try {
-    if (!state.resultRows || state.resultRows.length === 0) {
-      addLog('No output is available to download. Run prediction first.', 'error');
+    if (typeof ExcelJS === 'undefined') {
+      addLog('Excel export library is not loaded. Check the ExcelJS script in index.html.', 'error');
       return;
     }
-
+    if (!state.resultRows || state.resultRows.length === 0) {
+      addLog('No predicted output is available to download.', 'error');
+      return;
+    }
     addLog('Preparing Excel download...');
     await downloadTrueXlsx(`${baseFileName()}-predicted.xlsx`, state.resultRows);
     addLog('Excel file downloaded successfully.');
@@ -1287,8 +1128,4 @@ elements.downloadCsvButton.addEventListener('click', async () => {
     addLog(`Excel download failed: ${error.message}`, 'error');
     console.error(error);
   }
-});
-
-elements.downloadReportButton.addEventListener('click', () => {
-  downloadText(`${baseFileName()}-prediction-report.csv`, buildReportCSV());
 });
