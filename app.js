@@ -332,10 +332,14 @@ function excelSerialToDateString(value) {
 
   const millisecondsPerDay = 24 * 60 * 60 * 1000;
   const date = new Date(Date.UTC(1899, 11, 30) + number * millisecondsPerDay);
-  const iso = date.toISOString();
-  return Math.abs(number - Math.round(number)) < 0.0000001
-    ? iso.slice(0, 10)
-    : iso.slice(0, 19).replace('T', ' ');
+
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 function columnIndexFromCellRef(cellRef) {
@@ -484,21 +488,39 @@ function looksLikeDateOnlyValue(value) {
   const text = String(value || '').trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(text);
 }
+function formatDate(day, month, year) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  return `${day} ${months[Number(month) - 1]} ${year}`;
+}
 
 function splitDateTime(value) {
   const text = String(value || '').trim();
 
-  let match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)/);
+  // Match: YYYY-MM-DD HH:mm:ss OR YYYY-MM-DDTHH:mm:ss
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T]?(\d{2}:\d{2})(?::\d{2})?/);
+
   if (match) {
-    return { date: match[1], time: match[2] };
+    const year = match[1];
+    const month = match[2];
+    const day = match[3];
+    const time = match[4] || '00:00';
+
+    const formattedDate = formatDate(day, month, year);
+
+    return {
+      date: formattedDate,
+      time: time
+    };
   }
 
-  match = text.match(/^(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})[ T](\d{1,2}:\d{2}(?::\d{2})?\s?(?:AM|PM|am|pm)?)/);
-  if (match) {
-    return { date: match[1], time: match[2] };
-  }
-
-  return { date: value, time: '' };
+  return {
+    date: text,
+    time: '00:00'
+  };
 }
 
 function rowsToObjects(parsedRows) {
