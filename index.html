@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Predictive Data Recovery</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">People count recovery</p>
+          <h1>Predictive Data Recovery</h1>
+        </div>
+        <div class="status-strip" aria-live="polite">
+          <span id="rowCount">No file loaded</span>
+          <span id="missingCount">0 missing</span>
+          <span id="predictedCount">0 predicted</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <aside class="control-panel" aria-label="Export setup">
+          <label class="drop-zone" id="dropZone">
+            <input id="fileInput" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+            <span class="drop-title">Upload export file</span>
+            <span class="drop-copy" id="fileName">Drag a file here or choose from disk</span>
+          </label>
+
+          <div class="panel-block">
+            <h2>Column Mapping</h2>
+            <label class="field">
+              <span>Date or timestamp</span>
+              <select id="dateColumn"></select>
+            </label>
+            <label class="field">
+              <span>Count to fill when zero</span>
+              <select id="targetColumn"></select>
+            </label>
+            <div class="field">
+              <span>Previous data columns</span>
+              <div class="checkbox-grid" id="historyColumns"></div>
+            </div>
+          </div>
+
+          <div class="panel-block">
+            <h2>Prediction Logic</h2>
+            <div class="segmented" role="radiogroup" aria-label="Prediction method">
+              <label>
+                <input type="radio" name="method" value="weighted" checked>
+                <span>Weighted</span>
+              </label>
+              <label>
+                <input type="radio" name="method" value="average">
+                <span>Average</span>
+              </label>
+              <label>
+                <input type="radio" name="method" value="median">
+                <span>Median</span>
+              </label>
+            </div>
+            <label class="field inline-field">
+              <span>Zero means missing</span>
+              <input id="zeroMissing" type="checkbox" checked>
+            </label>
+            <label class="field">
+              <span>Round predicted counts</span>
+              <select id="roundingMode">
+                <option value="integer">Nearest whole count</option>
+                <option value="oneDecimal">One decimal</option>
+                <option value="none">Keep decimal</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="runButton" class="primary" type="button" disabled>Run Prediction</button>
+            <button id="downloadCsvButton" type="button" disabled>Download CSV</button>
+            <button id="downloadReportButton" type="button" disabled>Download Report</button>
+          </div>
+        </aside>
+
+        <section class="results-panel" aria-label="Prediction results">
+          <div class="summary-grid">
+            <article>
+              <span>Rows scanned</span>
+              <strong id="metricRows">0</strong>
+            </article>
+            <article>
+              <span>Zero count rows</span>
+              <strong id="metricMissing">0</strong>
+            </article>
+            <article>
+              <span>Predictions made</span>
+              <strong id="metricPredicted">0</strong>
+            </article>
+            <article>
+              <span>Needs review</span>
+              <strong id="metricReview">0</strong>
+            </article>
+          </div>
+
+          <div class="preview-section">
+            <div class="section-heading">
+              <h2>Prediction Preview</h2>
+              <span id="previewNote">Upload a CSV to begin.</span>
+            </div>
+            <div class="table-wrap">
+              <table id="previewTable">
+                <thead></thead>
+                <tbody>
+                  <tr>
+                    <td class="empty-state">No data loaded yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="terminal-section">
+            <div class="section-heading">
+              <h2>Processing Log</h2>
+              <button id="clearLogButton" type="button">Clear</button>
+            </div>
+            <pre id="logWindow" class="log-window" aria-live="polite">Waiting for CSV upload...</pre>
+          </div>
+        </section>
+      </section>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
+    <script src="app.js"></script>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
