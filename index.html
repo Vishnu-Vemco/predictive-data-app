@@ -46,8 +46,23 @@
 
           <div class="panel-block">
             <h2>Prediction Logic</h2>
-           <div class="segmented" role="radiogroup" aria-label="Prediction method">
-            </label>
+            <div class="segmented" role="radiogroup" aria-label="Prediction method">
+
+              <label class="tooltip" data-tip="Best for stable patterns using previous week, month and year data">
+                <input type="radio" name="method" value="weighted" checked>
+                <span>Weighted</span>
+              </label>
+
+              <label class="tooltip" data-tip="Good when many values are missing or no strong pattern exists">
+                <input type="radio" name="method" value="average">
+                <span>Average</span>
+              </label>
+
+              <label class="tooltip" data-tip="Best when data has spikes or irregular peaks (avoids outliers)">
+                <input type="radio" name="method" value="median">
+                <span>Median</span>
+              </label>
+
             </div>
             <label class="field inline-field">
               <span>Zero means missing</span>
@@ -62,6 +77,7 @@
               </select>
             </label>
           </div>
+
           <div class="actions">
             <button id="runButton" class="primary" type="button" disabled>Run Prediction</button>
             <button id="downloadCsvButton" type="button" disabled>Download Excel</button>
