@@ -47,19 +47,17 @@
           <div class="panel-block">
             <h2>Prediction Logic</h2>
             <div class="segmented" role="radiogroup" aria-label="Prediction method">
-              <label title="Automatically chooses the best method based on missing data pattern, available history, and outliers.">
-                <input type="radio" name="method" value="auto" checked>
-                <span>Auto</span>
-              </label>
-              <label title="Uses weighted values from previous week, month, and year. Best for stable people-count patterns and short gaps.">
-                <input type="radio" name="method" value="weighted">
+              <label title="Uses weighted values from previous week, month, and year. Best for stable patterns and short gaps">
+                <input type="radio" name="method" value="weighted" checked>
                 <span>Weighted</span>
               </label>
-              <label title="Uses the simple average of available historical values. Good when many records are missing or no strong pattern exists.">
+            
+              <label title="Uses simple average of historical values. Good when many values are missing or no strong pattern exists">
                 <input type="radio" name="method" value="average">
                 <span>Average</span>
               </label>
-              <label title="Uses the middle value to reduce the impact of spikes and outliers. Best when the data has unusual peaks.">
+            
+              <label title="Uses median to avoid impact of spikes or outliers. Best when data has irregular peaks">
                 <input type="radio" name="method" value="median">
                 <span>Median</span>
               </label>
