@@ -47,20 +47,21 @@
           <div class="panel-block">
             <h2>Prediction Logic</h2>
             <div class="segmented" role="radiogroup" aria-label="Prediction method">
-              <label title="Uses weighted values from previous week, month, and year. Best for stable patterns and short gaps">
-                <input type="radio" name="method" value="weighted" checked>
-                <span>Weighted</span>
-              </label>
+             <label class="tooltip" data-tip="Best for stable patterns using previous week, month and year data">
+            <label class="tooltip" data-tip="Best for stable patterns using previous week, month and year data">
+              <input type="radio" name="method" value="weighted" checked>
+              <span>Weighted</span>
+            </label>
             
-              <label title="Uses simple average of historical values. Good when many values are missing or no strong pattern exists">
-                <input type="radio" name="method" value="average">
-                <span>Average</span>
-              </label>
+            <label class="tooltip" data-tip="Good when many values are missing or no strong pattern exists">
+              <input type="radio" name="method" value="average">
+              <span>Average</span>
+            </label>
             
-              <label title="Uses median to avoid impact of spikes or outliers. Best when data has irregular peaks">
-                <input type="radio" name="method" value="median">
-                <span>Median</span>
-              </label>
+            <label class="tooltip" data-tip="Best when data has spikes or irregular peaks (avoids outliers)">
+              <input type="radio" name="method" value="median">
+              <span>Median</span>
+            </label>
             </div>
             <label class="field inline-field">
               <span>Zero means missing</span>
