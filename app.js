@@ -460,6 +460,48 @@ function makeUniqueHeaders(rawHeaders) {
     return count === 0 ? clean : `${clean} (${count + 1})`;
   });
 }
+function formatDate(day, month, year) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  return `${String(day).padStart(2, '0')} ${months[Number(month) - 1] || month} ${year}`;
+}
+
+function splitDateTime(value) {
+  const text = String(value || '').trim();
+
+  // Handles YYYY-MM-DD HH:mm, YYYY-MM-DD HH:mm:ss, and YYYY-MM-DDTHH:mm:ss
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T]?(\d{2}:\d{2})(?::\d{2})?/);
+  if (isoMatch) {
+    return {
+      date: formatDate(isoMatch[3], isoMatch[2], isoMatch[1]),
+      time: isoMatch[4] || '00:00',
+    };
+  }
+
+  // Handles DD/MM/YYYY HH:mm or DD-MM-YYYY HH:mm
+  const dayFirstMatch = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2})(?::\d{2})?)?/);
+  if (dayFirstMatch) {
+    return {
+      date: formatDate(dayFirstMatch[1], dayFirstMatch[2], dayFirstMatch[3]),
+      time: dayFirstMatch[4] || '00:00',
+    };
+  }
+
+  // Handles a date with no time. Keep 00:00 instead of blank.
+  const dateOnlyMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnlyMatch) {
+    return {
+      date: formatDate(dateOnlyMatch[3], dateOnlyMatch[2], dateOnlyMatch[1]),
+      time: '00:00',
+    };
+  }
+
+  return { date: text, time: '00:00' };
+}
+
 
 function rowsToObjects(parsedRows) {
   if (parsedRows.length === 0) {
@@ -617,11 +659,12 @@ function getSelectedHistoryColumns() {
   return Array.from(elements.historyColumns.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
 }
 
+
 function chooseAutoMethod() {
   const targetColumn = elements.targetColumn.value;
   const historyColumns = getSelectedHistoryColumns();
 
-  if (!targetColumn || historyColumns.length === 0 || state.rows.length === 0) {
+  if (!targetColumn || historyColumns.length === 0) {
     return 'weighted';
   }
 
@@ -630,7 +673,9 @@ function chooseAutoMethod() {
     return 'weighted';
   }
 
-  const missingRatio = missingRows.length / state.rows.length;
+  const totalRows = state.rows.length || 1;
+  const missingRatio = missingRows.length / totalRows;
+
   const historyValues = missingRows.flatMap((row) =>
     historyColumns
       .map((column) => parseNumber(row[column]))
@@ -643,16 +688,18 @@ function chooseAutoMethod() {
 
   const avg = average(historyValues);
   const max = Math.max(...historyValues);
-  const hasOutlier = avg > 0 && max / avg > 2;
 
-  if (hasOutlier) {
+  // If there are strong spikes, median is safer because it reduces outlier impact.
+  if (avg > 0 && max / avg > 2) {
     return 'median';
   }
 
+  // If a large amount of data is missing, average is more stable than heavily relying on one period.
   if (missingRatio > 0.2) {
     return 'average';
   }
 
+  // If enough history columns exist, weighted is best for normal short gaps.
   if (historyColumns.length >= 3) {
     return 'weighted';
   }
@@ -660,13 +707,8 @@ function chooseAutoMethod() {
   return 'average';
 }
 
-function selectedPredictionMethod() {
-  const selected = methodName();
-  return selected === 'auto' ? chooseAutoMethod() : selected;
-}
-
 function methodName() {
-  return document.querySelector('input[name="method"]:checked')?.value || 'auto';
+  return document.querySelector('input[name="method"]:checked')?.value || 'weighted';
 }
 
 function roundPrediction(value) {
@@ -797,7 +839,7 @@ function runPrediction() {
   const dateColumn = elements.dateColumn.value;
   const targetColumn = elements.targetColumn.value;
   const historyColumns = getSelectedHistoryColumns();
-  const method = selectedPredictionMethod();
+  const method = methodName();
 
   if (!targetColumn) {
     addLog('Select the count column before running prediction.', 'error');
@@ -1030,7 +1072,11 @@ async function handleFile(file) {
     populateHistoryColumns(guesses.numericHeaders.filter((header) => header !== guesses.targetColumn), guesses.historyColumns);
 
     const recommendedMethod = chooseAutoMethod();
-    addLog(`Recommended prediction method: ${recommendedMethod}. Auto mode will use this unless you manually choose another method.`);
+    const methodInput = document.querySelector(`input[name="method"][value="${recommendedMethod}"]`);
+    if (methodInput) {
+      methodInput.checked = true;
+    }
+    addLog(`Recommended prediction method selected: ${recommendedMethod}. You can change it before running prediction.`);
 
     elements.fileName.textContent = file.name;
     elements.runButton.disabled = false;
@@ -1108,24 +1154,4 @@ elements.downloadCsvButton.addEventListener('click', () => {
 
 elements.downloadReportButton.addEventListener('click', () => {
   downloadText(`${baseFileName()}-prediction-report.csv`, buildReportCSV());
-});
-
-
-elements.downloadCsvButton.addEventListener('click', async () => {
-  try {
-    if (typeof ExcelJS === 'undefined') {
-      addLog('Excel export library is not loaded. Check the ExcelJS script in index.html.', 'error');
-      return;
-    }
-    if (!state.resultRows || state.resultRows.length === 0) {
-      addLog('No predicted output is available to download.', 'error');
-      return;
-    }
-    addLog('Preparing Excel download...');
-    await downloadTrueXlsx(`${baseFileName()}-predicted.xlsx`, state.resultRows);
-    addLog('Excel file downloaded successfully.');
-  } catch (error) {
-    addLog(`Excel download failed: ${error.message}`, 'error');
-    console.error(error);
-  }
 });
