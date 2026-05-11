@@ -23,28 +23,6 @@
   display: inline-block;
 }
 
-.tooltip::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: 130%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #2d3748;
-  color: #fff;
-  padding: 6px 10px;
-  font-size: 12px;
-  border-radius: 6px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-  z-index: 10;
-}
-
-.tooltip:hover::after {
-  opacity: 1;
-}
-
 body {
   margin: 0;
   min-width: 320px;
@@ -485,4 +463,44 @@ tr.review-row td {
   .section-heading span {
     text-align: left;
   }
+}
+/* Add this to styles.css if it is not already present */
+
+.tooltip {
+  position: relative;
+  cursor: help;
+  display: inline-block;
+}
+
+.tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2d3748;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  white-space: normal;
+  width: 200px;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+.predicted-cell {
+  background: #ffc000;
+  font-weight: 700;
+}
+
+.review-cell {
+  background: #ffe0b2;
 }
