@@ -30,25 +30,28 @@
 
           <div class="panel-block">
             <h2>Column Mapping</h2>
+
             <label class="field">
               <span>Date or timestamp</span>
               <select id="dateColumn"></select>
             </label>
-            <label class="field">
-              <span>Count to fill when zero</span>
-              <select id="targetColumn"></select>
-            </label>
+
             <div class="field">
-              <span>Previous data columns</span>
+              <span>Counts to predict when zero / missing</span>
+              <div class="checkbox-grid" id="targetColumns"></div>
+            </div>
+
+            <div class="field">
+              <span>History columns used for auto-mapping</span>
               <div class="checkbox-grid" id="historyColumns"></div>
             </div>
           </div>
 
           <div class="panel-block">
             <h2>Prediction Logic</h2>
-            <div class="segmented" role="radiogroup" aria-label="Prediction method">
 
-              <label class="tooltip" data-tip="Best for stable patterns using previous week, month and year data">
+            <div class="segmented" role="radiogroup" aria-label="Prediction method">
+              <label class="tooltip" data-tip="Best for stable patterns using same entrance, previous week and previous month data">
                 <input type="radio" name="method" value="weighted" checked>
                 <span>Weighted</span>
               </label>
@@ -58,16 +61,17 @@
                 <span>Average</span>
               </label>
 
-              <label class="tooltip" data-tip="Best when data has spikes or irregular peaks (avoids outliers)">
+              <label class="tooltip" data-tip="Best when data has spikes or irregular peaks because it avoids outliers">
                 <input type="radio" name="method" value="median">
                 <span>Median</span>
               </label>
-
             </div>
+
             <label class="field inline-field">
               <span>Zero means missing</span>
               <input id="zeroMissing" type="checkbox" checked>
             </label>
+
             <label class="field">
               <span>Round predicted counts</span>
               <select id="roundingMode">
@@ -92,7 +96,7 @@
               <strong id="metricRows">0</strong>
             </article>
             <article>
-              <span>Zero count rows</span>
+              <span>Missing target cells</span>
               <strong id="metricMissing">0</strong>
             </article>
             <article>
@@ -108,7 +112,7 @@
           <div class="preview-section">
             <div class="section-heading">
               <h2>Prediction Preview</h2>
-              <span id="previewNote">Upload a CSV to begin.</span>
+              <span id="previewNote">Upload a CSV or XLSX to begin.</span>
             </div>
             <div class="table-wrap">
               <table id="previewTable">
@@ -132,6 +136,7 @@
         </section>
       </section>
     </main>
+
     <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
     <script src="app.js"></script>
   </body>
