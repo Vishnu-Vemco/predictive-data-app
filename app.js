@@ -7,6 +7,7 @@ const state = {
   resultRows: [],
   predictions: [],
   reviewItems: [],
+  targetMappings: {},
   logs: [],
 };
 
@@ -15,7 +16,7 @@ const elements = {
   dropZone: document.getElementById('dropZone'),
   fileName: document.getElementById('fileName'),
   dateColumn: document.getElementById('dateColumn'),
-  targetColumn: document.getElementById('targetColumn'),
+  targetColumns: document.getElementById('targetColumns'),
   historyColumns: document.getElementById('historyColumns'),
   zeroMissing: document.getElementById('zeroMissing'),
   roundingMode: document.getElementById('roundingMode'),
@@ -324,6 +325,7 @@ function isDateStyle(styleIndex, styles) {
   return isCustomDateFormat(styles.customNumberFormats.get(numberFormatId) || '');
 }
 
+
 function excelSerialToDateString(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
@@ -341,6 +343,7 @@ function excelSerialToDateString(value) {
 
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
+
 
 function columnIndexFromCellRef(cellRef) {
   const match = String(cellRef || '').match(/^([A-Z]+)/i);
@@ -460,65 +463,110 @@ function makeUniqueHeaders(rawHeaders) {
     return count === 0 ? clean : `${clean} (${count + 1})`;
   });
 }
-function formatDate(day, month, year) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
 
+
+function isIndexHeader(header) {
+  const lower = String(header || '').trim().toLowerCase();
+  return lower === '' || lower === 'index' || lower === 'idx' || lower === '#' || lower.startsWith('unnamed') || /^index( \(\d+\))?$/.test(lower);
+}
+
+function shouldRemoveSourceColumn(header, index) {
+  return isIndexHeader(header);
+}
+
+function formatDate(day, month, year) {
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${String(day).padStart(2, '0')} ${months[Number(month) - 1] || month} ${year}`;
 }
 
 function splitDateTime(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    const hours = String(value.getHours()).padStart(2, '0');
+    const minutes = String(value.getMinutes()).padStart(2, '0');
+    return { date: formatDate(day, month, year), time: `${hours}:${minutes}` };
+  }
+
   const text = String(value || '').trim();
 
-  // Handles YYYY-MM-DD HH:mm, YYYY-MM-DD HH:mm:ss, and YYYY-MM-DDTHH:mm:ss
-  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T]?(\d{2}:\d{2})(?::\d{2})?/);
-  if (isoMatch) {
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?/);
+  if (match) {
     return {
-      date: formatDate(isoMatch[3], isoMatch[2], isoMatch[1]),
-      time: isoMatch[4] || '00:00',
+      date: formatDate(match[3], match[2], match[1]),
+      time: `${match[4] || '00'}:${match[5] || '00'}`,
     };
   }
 
-  // Handles DD/MM/YYYY HH:mm or DD-MM-YYYY HH:mm
-  const dayFirstMatch = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2})(?::\d{2})?)?/);
-  if (dayFirstMatch) {
+  match = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?/);
+  if (match) {
     return {
-      date: formatDate(dayFirstMatch[1], dayFirstMatch[2], dayFirstMatch[3]),
-      time: dayFirstMatch[4] || '00:00',
-    };
-  }
-
-  // Handles a date with no time. Keep 00:00 instead of blank.
-  const dateOnlyMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnlyMatch) {
-    return {
-      date: formatDate(dateOnlyMatch[3], dateOnlyMatch[2], dateOnlyMatch[1]),
-      time: '00:00',
+      date: formatDate(match[1], match[2], match[3]),
+      time: `${match[4] || '00'}:${match[5] || '00'}`,
     };
   }
 
   return { date: text, time: '00:00' };
 }
 
-
 function rowsToObjects(parsedRows) {
   if (parsedRows.length === 0) {
     return { headers: [], rows: [] };
   }
 
-  const headers = makeUniqueHeaders(parsedRows[0]);
+  const rawHeaders = makeUniqueHeaders(parsedRows[0]);
+  const keptColumns = rawHeaders
+    .map((header, index) => ({ header, index }))
+    .filter((column) => !shouldRemoveSourceColumn(column.header, column.index));
+
+  let headers = keptColumns.map((column) => column.header);
+  const firstKeptColumnIndex = keptColumns[0]?.index ?? 0;
+
+  const hasDateTime = parsedRows.slice(1, 30).some((row) => {
+    const value = String(row[firstKeptColumnIndex] ?? '').trim();
+    return /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?/.test(value) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(value);
+  });
+
+  if (hasDateTime) {
+    headers[0] = 'Date';
+    if (!headers.includes('Time')) {
+      headers.splice(1, 0, 'Time');
+    }
+  }
+
   const rows = parsedRows.slice(1).map((cells, rowIndex) => {
     const row = { __rowNumber: rowIndex + 2 };
-    headers.forEach((header, columnIndex) => {
-      row[header] = cells[columnIndex] ?? '';
+
+    headers.forEach((header, outputIndex) => {
+      if (hasDateTime && outputIndex === 0) {
+        const { date, time } = splitDateTime(cells[firstKeptColumnIndex]);
+        row.Date = date;
+        row.Time = time;
+        return;
+      }
+
+      if (hasDateTime && outputIndex === 1 && header === 'Time') {
+        return;
+      }
+
+      const keptIndex = hasDateTime && outputIndex > 1 ? outputIndex - 1 : outputIndex;
+      const sourceColumnIndex = keptColumns[keptIndex]?.index;
+      row[header] = sourceColumnIndex !== undefined ? cells[sourceColumnIndex] ?? '' : '';
     });
+
     return row;
   });
 
-  return { headers, rows };
+  const cleanedRows = rows.filter((row) => {
+    return !Object.values(row).some((val) =>
+      SUMMARY_ROW_LABELS.has(String(val).trim().toLowerCase())
+    );
+  });
+
+  return { headers, rows: cleanedRows };
 }
+
 
 function parseNumber(value) {
   if (value === null || value === undefined) {
@@ -583,6 +631,71 @@ function scoreTargetHeader(header) {
   return score;
 }
 
+
+function cleanHeadingForMatch(header) {
+  return String(header || '')
+    .toLowerCase()
+    .replace(/[▲▼]/g, ' ')
+    .replace(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\s*-\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}/gi, ' ')
+    .replace(/\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}/g, ' ')
+    .replace(/\bsame\s+weekday\b/g, ' ')
+    .replace(/\bsame\s+date\b/g, ' ')
+    .replace(/\bprevious\s+week\b/g, ' ')
+    .replace(/\bprevious\s+month\b/g, ' ')
+    .replace(/\bprevious\b/g, ' ')
+    .replace(/\bweek\b/g, ' ')
+    .replace(/\bmonth\b/g, ' ')
+    .replace(/\byear\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function headingTokens(header) {
+  const stop = new Set(['same', 'date', 'weekday', 'previous', 'week', 'month', 'year', 'index', 'total']);
+  return cleanHeadingForMatch(header)
+    .split(/\s+/)
+    .filter((token) => token && token.length > 1 && !stop.has(token));
+}
+
+function tokenSimilarity(a, b) {
+  const aTokens = new Set(headingTokens(a));
+  const bTokens = new Set(headingTokens(b));
+
+  if (aTokens.size === 0 || bTokens.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  aTokens.forEach((token) => {
+    if (bTokens.has(token)) {
+      intersection += 1;
+    }
+  });
+
+  return intersection / Math.max(aTokens.size, bTokens.size);
+}
+
+function sideToken(header) {
+  const clean = cleanHeadingForMatch(header);
+  if (clean.includes('left')) return 'left';
+  if (clean.includes('right')) return 'right';
+  return '';
+}
+
+function isTotalHeader(header) {
+  return /\btotal\b/i.test(String(header || ''));
+}
+
+function isPredictionTargetHeader(header) {
+  if (looksLikeDateHeader(header) || looksLikeHistoryHeader(header) || isTotalHeader(header) || isIndexHeader(header)) {
+    return false;
+  }
+
+  const profile = numericProfile(header);
+  return profile.ratio >= 0.35 && scoreTargetHeader(header) > 0;
+}
+
 function guessColumns() {
   const numericHeaders = state.headers
     .map((header) => ({ header, profile: numericProfile(header) }))
@@ -590,22 +703,29 @@ function guessColumns() {
 
   const dateColumn = state.headers.find(looksLikeDateHeader) || '';
 
-  const targetColumn = numericHeaders
+  const targetColumns = numericHeaders
     .map((item) => ({ ...item, score: scoreTargetHeader(item.header) }))
-    .sort((a, b) => b.score - a.score || b.profile.ratio - a.profile.ratio)[0]?.header || numericHeaders[0]?.header || '';
-
-  const historyColumns = numericHeaders
-    .filter((item) => item.header !== targetColumn)
-    .map((item) => ({
-      header: item.header,
-      score: looksLikeHistoryHeader(item.header) ? 10 : 0,
-      ratio: item.profile.ratio,
-    }))
-    .sort((a, b) => b.score - a.score || b.ratio - a.ratio)
-    .filter((item, index) => item.score > 0 || index < 3)
+    .filter((item) => isPredictionTargetHeader(item.header))
+    .sort((a, b) => b.score - a.score || b.profile.ratio - a.profile.ratio)
     .map((item) => item.header);
 
-  return { dateColumn, targetColumn, historyColumns, numericHeaders: numericHeaders.map((item) => item.header) };
+  const fallbackTargets = targetColumns.length > 0
+    ? targetColumns
+    : numericHeaders
+        .filter((item) => !looksLikeDateHeader(item.header) && !looksLikeHistoryHeader(item.header) && !isTotalHeader(item.header))
+        .slice(0, 2)
+        .map((item) => item.header);
+
+  const historyColumns = numericHeaders
+    .filter((item) => !fallbackTargets.includes(item.header) && looksLikeHistoryHeader(item.header) && !isTotalHeader(item.header))
+    .map((item) => item.header);
+
+  return {
+    dateColumn,
+    targetColumns: fallbackTargets,
+    historyColumns,
+    numericHeaders: numericHeaders.map((item) => item.header),
+  };
 }
 
 function populateSelect(select, headers, selectedValue, allowBlank = true) {
@@ -628,13 +748,44 @@ function populateSelect(select, headers, selectedValue, allowBlank = true) {
   select.value = selectedValue || '';
 }
 
+function populateTargetColumns(headers, selectedHeaders) {
+  elements.targetColumns.innerHTML = '';
+
+  if (headers.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'muted-line';
+    empty.textContent = 'No numeric target columns detected.';
+    elements.targetColumns.appendChild(empty);
+    return;
+  }
+
+  headers.forEach((header) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    const text = document.createElement('span');
+
+    input.type = 'checkbox';
+    input.value = header;
+    input.checked = selectedHeaders.includes(header);
+    text.textContent = header;
+    text.title = header;
+
+    label.append(input, text);
+    elements.targetColumns.appendChild(label);
+  });
+}
+
+function getSelectedTargetColumns() {
+  return Array.from(elements.targetColumns.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
+}
+
 function populateHistoryColumns(headers, selectedHeaders) {
   elements.historyColumns.innerHTML = '';
 
   if (headers.length === 0) {
     const empty = document.createElement('span');
     empty.className = 'muted-line';
-    empty.textContent = 'No numeric history columns detected.';
+    empty.textContent = 'History columns will be mapped automatically from matching headings.';
     elements.historyColumns.appendChild(empty);
     return;
   }
@@ -659,28 +810,90 @@ function getSelectedHistoryColumns() {
   return Array.from(elements.historyColumns.querySelectorAll('input[type="checkbox"]:checked')).map((input) => input.value);
 }
 
+function scoreHistoryForTarget(targetHeader, historyHeader) {
+  if (!looksLikeHistoryHeader(historyHeader) || isTotalHeader(historyHeader) || isIndexHeader(historyHeader)) {
+    return 0;
+  }
+
+  let score = tokenSimilarity(targetHeader, historyHeader);
+
+  const targetSide = sideToken(targetHeader);
+  const historySide = sideToken(historyHeader);
+  if (targetSide && historySide && targetSide === historySide) {
+    score += 0.3;
+  }
+  if (targetSide && historySide && targetSide !== historySide) {
+    score -= 0.4;
+  }
+
+  const targetClean = cleanHeadingForMatch(targetHeader);
+  const historyClean = cleanHeadingForMatch(historyHeader);
+  if (targetClean && historyClean.includes(targetClean)) {
+    score += 0.3;
+  }
+
+  if (/previous\s+week|same\s+weekday/i.test(historyHeader)) {
+    score += 0.1;
+  }
+  if (/previous\s+month|same\s+date/i.test(historyHeader)) {
+    score += 0.1;
+  }
+
+  return score;
+}
+
+function buildTargetHistoryMappings(targetColumns, candidateHistoryColumns) {
+  const mappings = {};
+
+  targetColumns.forEach((targetColumn) => {
+    const ranked = candidateHistoryColumns
+      .filter((header) => header !== targetColumn)
+      .map((historyColumn) => ({
+        historyColumn,
+        score: scoreHistoryForTarget(targetColumn, historyColumn),
+      }))
+      .filter((item) => item.score >= 0.45)
+      .sort((a, b) => b.score - a.score);
+
+    mappings[targetColumn] = ranked.slice(0, 4).map((item) => item.historyColumn);
+  });
+
+  return mappings;
+}
+
+function selectedTargetHistoryColumns(targetColumn) {
+  return state.targetMappings[targetColumn] || [];
+}
 
 function chooseAutoMethod() {
-  const targetColumn = elements.targetColumn.value;
-  const historyColumns = getSelectedHistoryColumns();
+  const targetColumns = getSelectedTargetColumns();
 
-  if (!targetColumn || historyColumns.length === 0) {
+  if (targetColumns.length === 0) {
     return 'weighted';
   }
 
-  const missingRows = state.rows.filter((row) => shouldPredict(row, targetColumn));
+  const missingRows = state.rows.filter((row) =>
+    targetColumns.some((targetColumn) => shouldPredict(row, targetColumn))
+  );
+
   if (missingRows.length === 0) {
     return 'weighted';
   }
 
-  const totalRows = state.rows.length || 1;
-  const missingRatio = missingRows.length / totalRows;
+  const totalCells = Math.max(1, state.rows.length * targetColumns.length);
+  const missingCells = missingRows.reduce((count, row) => {
+    return count + targetColumns.filter((targetColumn) => shouldPredict(row, targetColumn)).length;
+  }, 0);
+  const missingRatio = missingCells / totalCells;
 
-  const historyValues = missingRows.flatMap((row) =>
-    historyColumns
-      .map((column) => parseNumber(row[column]))
-      .filter((value) => value !== null && value > 0)
-  );
+  const historyValues = targetColumns.flatMap((targetColumn) => {
+    const historyColumns = selectedTargetHistoryColumns(targetColumn);
+    return missingRows.flatMap((row) =>
+      historyColumns
+        .map((column) => parseNumber(row[column]))
+        .filter((value) => value !== null && value > 0)
+    );
+  });
 
   if (historyValues.length === 0) {
     return 'median';
@@ -689,22 +902,15 @@ function chooseAutoMethod() {
   const avg = average(historyValues);
   const max = Math.max(...historyValues);
 
-  // If there are strong spikes, median is safer because it reduces outlier impact.
   if (avg > 0 && max / avg > 2) {
     return 'median';
   }
 
-  // If a large amount of data is missing, average is more stable than heavily relying on one period.
   if (missingRatio > 0.2) {
     return 'average';
   }
 
-  // If enough history columns exist, weighted is best for normal short gaps.
-  if (historyColumns.length >= 3) {
-    return 'weighted';
-  }
-
-  return 'average';
+  return 'weighted';
 }
 
 function methodName() {
@@ -835,19 +1041,14 @@ function shouldPredict(row, targetColumn) {
   return parseNumber(row[targetColumn]) === null;
 }
 
+
 function runPrediction() {
   const dateColumn = elements.dateColumn.value;
-  const targetColumn = elements.targetColumn.value;
-  const historyColumns = getSelectedHistoryColumns();
+  const targetColumns = getSelectedTargetColumns();
   const method = methodName();
 
-  if (!targetColumn) {
-    addLog('Select the count column before running prediction.', 'error');
-    return;
-  }
-
-  if (historyColumns.length === 0) {
-    addLog('Select at least one previous data column.', 'error');
+  if (targetColumns.length === 0) {
+    addLog('Select at least one count column before running prediction.', 'error');
     return;
   }
 
@@ -855,47 +1056,70 @@ function runPrediction() {
   state.reviewItems = [];
   state.resultRows = state.rows.map((row) => ({ ...row }));
 
-  addLog(`Running ${method} prediction on "${targetColumn}" using ${historyColumns.length} history column(s).`);
+  targetColumns.forEach((targetColumn) => {
+    if (!state.targetMappings[targetColumn] || state.targetMappings[targetColumn].length === 0) {
+      state.targetMappings[targetColumn] = buildTargetHistoryMappings([targetColumn], getSelectedHistoryColumns())[targetColumn] || [];
+    }
+  });
 
-  state.resultRows.forEach((row) => {
-    if (!shouldPredict(row, targetColumn)) {
+  addLog(`Running ${method} prediction for ${targetColumns.length} target column(s).`);
+
+  targetColumns.forEach((targetColumn) => {
+    const historyColumns = selectedTargetHistoryColumns(targetColumn);
+
+    if (historyColumns.length === 0) {
+      addLog(`No matching history columns found for "${targetColumn}".`, 'warn');
       return;
     }
 
-    const prediction = predictFromHistory(row, historyColumns, method);
-    const dateLabel = dateColumn ? row[dateColumn] || `row ${row.__rowNumber}` : `row ${row.__rowNumber}`;
+    addLog(`"${targetColumn}" mapped to: ${historyColumns.join(' | ')}`);
 
-    if (prediction.value === null) {
-      state.reviewItems.push({
+    state.resultRows.forEach((row) => {
+      if (!shouldPredict(row, targetColumn)) {
+        return;
+      }
+
+      const prediction = predictFromHistory(row, historyColumns, method);
+      const dateLabel = dateColumn ? row[dateColumn] || `row ${row.__rowNumber}` : `row ${row.__rowNumber}`;
+
+      if (prediction.value === null) {
+        state.reviewItems.push({
+          rowNumber: row.__rowNumber,
+          date: dateLabel,
+          targetColumn,
+          reason: `No positive previous data values found for ${targetColumn}`,
+        });
+        row.__reviewCells = row.__reviewCells || {};
+        row.__reviewCells[targetColumn] = true;
+        row.__predictionStatus = 'review';
+        addLog(`Missing count found at ${dateLabel} for "${targetColumn}", but no usable matching history data was available.`, 'warn');
+        return;
+      }
+
+      const rounded = roundPrediction(prediction.value);
+      const originalValue = row[targetColumn];
+
+      row[targetColumn] = String(rounded);
+      row.__predictedCells = row.__predictedCells || {};
+      row.__predictedCells[targetColumn] = true;
+      row.__predictionStatus = 'predicted';
+
+      const sources = prediction.sourceValues
+        .map((item) => `${item.column}=${item.value}`)
+        .join(', ');
+
+      state.predictions.push({
         rowNumber: row.__rowNumber,
         date: dateLabel,
-        reason: 'No positive previous data values found',
+        targetColumn,
+        originalValue,
+        predictedValue: rounded,
+        method,
+        sources,
       });
-      row.__predictionStatus = 'review';
-      addLog(`Missing count found at ${dateLabel}, but no usable previous data was available.`, 'warn');
-      return;
-    }
 
-    const rounded = roundPrediction(prediction.value);
-    row.__originalValue = row[targetColumn];
-    row[targetColumn] = String(rounded);
-    row.__predictedValue = rounded;
-    row.__predictionStatus = 'predicted';
-
-    const sources = prediction.sourceValues
-      .map((item) => `${item.column}=${item.value}`)
-      .join(', ');
-
-    state.predictions.push({
-      rowNumber: row.__rowNumber,
-      date: dateLabel,
-      originalValue: row.__originalValue,
-      predictedValue: rounded,
-      method,
-      sources,
+      addLog(`Predicted "${targetColumn}" at ${dateLabel}: ${originalValue} -> ${rounded} (${sources}).`);
     });
-
-    addLog(`Predicted ${targetColumn} at ${dateLabel}: ${row.__originalValue} -> ${rounded} (${sources}).`);
   });
 
   if (state.predictions.length === 0 && state.reviewItems.length === 0) {
@@ -908,12 +1132,13 @@ function runPrediction() {
   elements.downloadReportButton.disabled = state.predictions.length === 0 && state.reviewItems.length === 0;
 }
 
+
 function updateMetrics() {
-  const targetColumn = elements.targetColumn.value;
+  const targetColumns = getSelectedTargetColumns();
   const scannableRows = state.rows.filter((row) => !isSummaryRow(row)).length;
-  const missing = targetColumn
-    ? state.rows.filter((row) => shouldPredict(row, targetColumn)).length
-    : 0;
+  const missing = targetColumns.reduce((count, targetColumn) => {
+    return count + state.rows.filter((row) => shouldPredict(row, targetColumn)).length;
+  }, 0);
 
   elements.rowCount.textContent = state.rows.length ? `${scannableRows} data rows` : 'No file loaded';
   elements.missingCount.textContent = `${missing} missing`;
@@ -923,6 +1148,7 @@ function updateMetrics() {
   elements.metricPredicted.textContent = String(state.predictions.length);
   elements.metricReview.textContent = String(state.reviewItems.length);
 }
+
 
 function visiblePreviewRows() {
   if (state.resultRows.length === 0) {
@@ -946,7 +1172,13 @@ function renderPreview() {
   }
 
   const rows = visiblePreviewRows();
-  const displayHeaders = state.headers.slice(0, 10);
+  const selectedTargets = getSelectedTargetColumns();
+  const importantHeaders = [
+    ...state.headers.filter((header) => looksLikeDateHeader(header) || header === 'Date' || header === 'Time'),
+    ...selectedTargets,
+  ];
+  const displayHeaders = [...new Set(importantHeaders.length > 0 ? importantHeaders : state.headers.slice(0, 12))].slice(0, 14);
+
   const headerRow = document.createElement('tr');
   displayHeaders.forEach((header) => {
     const th = document.createElement('th');
@@ -969,6 +1201,14 @@ function renderPreview() {
       const td = document.createElement('td');
       td.textContent = row[header] ?? '';
       td.title = row[header] ?? '';
+
+      if (row.__predictedCells?.[header]) {
+        td.classList.add('predicted-cell');
+      }
+      if (row.__reviewCells?.[header]) {
+        td.classList.add('review-cell');
+      }
+
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -997,14 +1237,16 @@ function buildCSV(rows) {
   return lines.join('\r\n');
 }
 
+
 function buildReportCSV() {
-  const headers = ['row_number', 'date', 'status', 'original_value', 'predicted_value', 'method', 'sources_or_reason'];
+  const headers = ['row_number', 'date', 'target_column', 'status', 'original_value', 'predicted_value', 'method', 'sources_or_reason'];
   const lines = [headers.join(',')];
 
   state.predictions.forEach((item) => {
     lines.push([
       item.rowNumber,
       item.date,
+      item.targetColumn,
       'predicted',
       item.originalValue,
       item.predictedValue,
@@ -1017,6 +1259,7 @@ function buildReportCSV() {
     lines.push([
       item.rowNumber,
       item.date,
+      item.targetColumn,
       'needs_review',
       '',
       '',
@@ -1040,9 +1283,105 @@ function downloadText(filename, text) {
   URL.revokeObjectURL(url);
 }
 
+
+async function downloadTrueXlsx(filename, rows) {
+  if (typeof ExcelJS === 'undefined') {
+    throw new Error('ExcelJS is not loaded. Check the ExcelJS script in index.html.');
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Predicted Data');
+
+  worksheet.addRow(state.headers);
+
+  worksheet.getRow(1).eachCell((cell) => {
+    cell.font = { bold: true };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFEAEAEA' },
+    };
+    cell.border = {
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' },
+    };
+  });
+
+  rows.forEach((row) => {
+    const excelRow = worksheet.addRow(
+      state.headers.map((header) => row[header] ?? '')
+    );
+
+    state.headers.forEach((header, index) => {
+      const cell = excelRow.getCell(index + 1);
+
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+
+      if (row.__predictedCells?.[header]) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFC000' },
+        };
+
+        cell.font = {
+          bold: true,
+          color: { argb: 'FF000000' },
+        };
+      }
+
+      if (row.__reviewCells?.[header]) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFE0B2' },
+        };
+      }
+    });
+  });
+
+  worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  worksheet.columns.forEach((column) => {
+    let maxLength = 12;
+
+    column.eachCell({ includeEmpty: true }, (cell) => {
+      const value = cell.value ? String(cell.value) : '';
+      maxLength = Math.max(maxLength, value.length + 2);
+    });
+
+    column.width = Math.min(maxLength, 40);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  URL.revokeObjectURL(url);
+}
+
 function baseFileName() {
   return (state.fileName || 'predictive-data').replace(/\.(csv|xlsx)$/i, '');
 }
+
 
 async function handleFile(file) {
   if (!file) {
@@ -1067,16 +1406,21 @@ async function handleFile(file) {
     state.logs = [];
 
     const guesses = guessColumns();
+    const historyCandidates = guesses.historyColumns.length > 0
+      ? guesses.historyColumns
+      : guesses.numericHeaders.filter((header) => looksLikeHistoryHeader(header) && !isTotalHeader(header));
+
     populateSelect(elements.dateColumn, headers, guesses.dateColumn);
-    populateSelect(elements.targetColumn, headers, guesses.targetColumn, false);
-    populateHistoryColumns(guesses.numericHeaders.filter((header) => header !== guesses.targetColumn), guesses.historyColumns);
+    populateTargetColumns(guesses.numericHeaders.filter((header) => !looksLikeDateHeader(header) && !looksLikeHistoryHeader(header) && !isTotalHeader(header)), guesses.targetColumns);
+    populateHistoryColumns(historyCandidates, historyCandidates);
+
+    state.targetMappings = buildTargetHistoryMappings(guesses.targetColumns, historyCandidates);
 
     const recommendedMethod = chooseAutoMethod();
     const methodInput = document.querySelector(`input[name="method"][value="${recommendedMethod}"]`);
     if (methodInput) {
       methodInput.checked = true;
     }
-    addLog(`Recommended prediction method selected: ${recommendedMethod}. You can change it before running prediction.`);
 
     elements.fileName.textContent = file.name;
     elements.runButton.disabled = false;
@@ -1087,14 +1431,19 @@ async function handleFile(file) {
     if (uploaded.sheetName) {
       addLog(`Using workbook sheet: "${uploaded.sheetName}".`);
     }
-    if (guesses.targetColumn) {
-      addLog(`Detected count column: "${guesses.targetColumn}".`);
-    }
-    if (guesses.historyColumns.length > 0) {
-      addLog(`Detected previous data columns: ${guesses.historyColumns.join(', ')}.`);
+
+    const selectedTargets = getSelectedTargetColumns();
+    if (selectedTargets.length > 0) {
+      addLog(`Detected target columns: ${selectedTargets.join(' | ')}.`);
+      selectedTargets.forEach((targetColumn) => {
+        const mapped = selectedTargetHistoryColumns(targetColumn);
+        addLog(`Mapped "${targetColumn}" to ${mapped.length} history column(s): ${mapped.join(' | ') || 'none found'}.`);
+      });
     } else {
-      addLog('No previous data columns were auto-selected. Please choose them manually.', 'warn');
+      addLog('No target columns were auto-selected. Please choose them manually.', 'warn');
     }
+
+    addLog(`Recommended prediction method selected: ${recommendedMethod}. You can change it before running prediction.`);
 
     updateMetrics();
     renderPreview();
@@ -1106,15 +1455,26 @@ async function handleFile(file) {
   }
 }
 
-function syncHistoryAfterTargetChange() {
-  const targetColumn = elements.targetColumn.value;
-  const selected = getSelectedHistoryColumns().filter((header) => header !== targetColumn);
-  const numericHeaders = state.headers.filter((header) => numericProfile(header).ratio >= 0.35 && header !== targetColumn);
-  const autoSelected = selected.length > 0 ? selected : numericHeaders.filter(looksLikeHistoryHeader);
-  populateHistoryColumns(numericHeaders, autoSelected);
+
+function syncTargetMappingsAfterTargetChange() {
+  const targetColumns = getSelectedTargetColumns();
+  const historyCandidates = getSelectedHistoryColumns();
+
+  state.targetMappings = buildTargetHistoryMappings(targetColumns, historyCandidates);
+
+  const recommendedMethod = chooseAutoMethod();
+  const methodInput = document.querySelector(`input[name="method"][value="${recommendedMethod}"]`);
+  if (methodInput) {
+    methodInput.checked = true;
+  }
+
   resetPredictionState();
   updateMetrics();
   renderPreview();
+}
+
+function syncHistoryAfterTargetChange() {
+  syncTargetMappingsAfterTargetChange();
 }
 
 function syncAfterDateColumnChange() {
@@ -1143,15 +1503,26 @@ elements.dropZone.addEventListener('drop', (event) => {
 });
 
 elements.dateColumn.addEventListener('change', syncAfterDateColumnChange);
-elements.targetColumn.addEventListener('change', syncHistoryAfterTargetChange);
-elements.zeroMissing.addEventListener('change', updateMetrics);
+elements.targetColumns.addEventListener('change', syncTargetMappingsAfterTargetChange);
+elements.zeroMissing.addEventListener('change', () => {
+  syncTargetMappingsAfterTargetChange();
+});
 elements.runButton.addEventListener('click', runPrediction);
 elements.clearLogButton.addEventListener('click', () => resetLog('Log cleared.'));
 
-elements.downloadCsvButton.addEventListener('click', () => {
-  downloadText(`${baseFileName()}-predicted.csv`, buildCSV(state.resultRows));
+elements.downloadCsvButton.addEventListener('click', async () => {
+  try {
+    addLog('Preparing Excel download...');
+    await downloadTrueXlsx(`${baseFileName()}-predicted.xlsx`, state.resultRows);
+    addLog('Excel file downloaded successfully.');
+  } catch (error) {
+    addLog(`Excel download failed: ${error.message}`, 'error');
+    console.error(error);
+  }
 });
 
 elements.downloadReportButton.addEventListener('click', () => {
   downloadText(`${baseFileName()}-prediction-report.csv`, buildReportCSV());
 });
+
+
