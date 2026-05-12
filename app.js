@@ -1052,13 +1052,16 @@ function runPrediction() {
     return;
   }
 
+  elements.runButton.disabled = true;
+
   state.predictions = [];
   state.reviewItems = [];
   state.resultRows = state.rows.map((row) => ({ ...row }));
 
   targetColumns.forEach((targetColumn) => {
     if (!state.targetMappings[targetColumn] || state.targetMappings[targetColumn].length === 0) {
-      state.targetMappings[targetColumn] = buildTargetHistoryMappings([targetColumn], getSelectedHistoryColumns())[targetColumn] || [];
+      state.targetMappings[targetColumn] =
+        buildTargetHistoryMappings([targetColumn], getSelectedHistoryColumns())[targetColumn] || [];
     }
   });
 
@@ -1072,7 +1075,7 @@ function runPrediction() {
       return;
     }
 
-    addLog(`"${targetColumn}" mapped to: ${historyColumns.join(' | ')}`);
+    addLog(`"${targetColumn}" mapped to ${historyColumns.length} history column(s).`);
 
     state.resultRows.forEach((row) => {
       if (!shouldPredict(row, targetColumn)) {
@@ -1080,7 +1083,9 @@ function runPrediction() {
       }
 
       const prediction = predictFromHistory(row, historyColumns, method);
-      const dateLabel = dateColumn ? row[dateColumn] || `row ${row.__rowNumber}` : `row ${row.__rowNumber}`;
+      const dateLabel = dateColumn
+        ? row[dateColumn] || `row ${row.__rowNumber}`
+        : `row ${row.__rowNumber}`;
 
       if (prediction.value === null) {
         state.reviewItems.push({
@@ -1089,10 +1094,11 @@ function runPrediction() {
           targetColumn,
           reason: `No positive previous data values found for ${targetColumn}`,
         });
+
         row.__reviewCells = row.__reviewCells || {};
         row.__reviewCells[targetColumn] = true;
         row.__predictionStatus = 'review';
-        addLog(`Missing count found at ${dateLabel} for "${targetColumn}", but no usable matching history data was available.`, 'warn');
+
         return;
       }
 
@@ -1117,21 +1123,26 @@ function runPrediction() {
         method,
         sources,
       });
-
-      addLog(`Predicted "${targetColumn}" at ${dateLabel}: ${originalValue} -> ${rounded} (${sources}).`);
     });
   });
 
   if (state.predictions.length === 0 && state.reviewItems.length === 0) {
     addLog('No missing values were found with the current settings.');
+  } else {
+    addLog(
+      `Prediction complete. ${state.predictions.length} value(s) predicted, ${state.reviewItems.length} need review.`
+    );
   }
 
   updateMetrics();
   renderPreview();
-  elements.downloadCsvButton.disabled = state.predictions.length === 0;
-  elements.downloadReportButton.disabled = state.predictions.length === 0 && state.reviewItems.length === 0;
-}
 
+  elements.downloadCsvButton.disabled = state.predictions.length === 0;
+  elements.downloadReportButton.disabled =
+    state.predictions.length === 0 && state.reviewItems.length === 0;
+
+  elements.runButton.disabled = false;
+}
 
 function updateMetrics() {
   const targetColumns = getSelectedTargetColumns();
